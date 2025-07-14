@@ -3,7 +3,7 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width">
-	<title>test page page-wide-override</title>
+	<title>test page page-wide</title>
 
 	<style>
 
@@ -43,6 +43,8 @@ table.table th {
 
 	</style>
 
+	<script	src="./common.js"></script>
+
 	<script>
 
 window.addEventListener("load", function(event) {
@@ -54,7 +56,7 @@ window.addEventListener("load", function(event) {
 		{html: `<label><textarea>silver</textarea></label>`, expected: 'gold'}, 
 		{html: `<label><textarea>filler silver filler</textarea></label>`, expected: 'filler gold filler'}, 
 		{html: `<label><textarea rows="3">filler\nsilver\nfiller</textarea></label>`, expected: 'filler gold filler'}, 
-		{html: `<span>Yes</span> <!-- --> <span>Yes</span>`, expected: `if chrome: "Yess Yess".  elif firefox: "oh-kay oh-kay".  (chrome shows strange behaviour on html comment.  it's not desirable, but it is expected.  the html comment here, which is between the first and second "Yes"es, will cause the speech filter to see "YesYes" (w/o any space between the two.)  so our regex-based code that makes page-wide-override work doesn't work here.)`}, 
+		{html: `<span>Yes</span> <!-- --> <span>Yes</span>`, expected: `if chrome: "Yess Yess".  elif firefox: "oh-kay oh-kay".  (chrome shows strange behaviour on html comment.  it's not desirable, but it is expected.  the html comment here, which is between the first and second "Yes"es, will cause the speech filter to see "YesYes" (w/o any space between the two.)  so our regex-based code that makes page-wide work doesn't work here.)`}, 
 		{html: `<span>Yes</span> <!-- x --> <span>Yes</span>`, expected: `if chrome: "Yess Yess".  elif firefox: "oh-kay oh-kay".   (another html comment test.)`}, 
 		{html: `<span>Yes</span><!-- --><span>Yes</span>`, expected: `"Yess Yess" (another html comment test.)`}, 
 		{html: `<span>Yes</span><!-- x --><span>Yes</span>`, expected: `"Yess Yess" (another html comment test.)`}, 
@@ -97,17 +99,9 @@ window.addEventListener("load", function(event) {
 		{html: `No Yes/No`, expected: `"No Oh-Kay No" or "No Oh-Kay Slash No"`}, 
 		{html: `No"Yes"No`, expected: `No Oh-Kay No`}, 
 	];
-	let tbody = document.getElementById('table').querySelector('tbody');
-	for(let testCase of testCases) {
-		let tr = document.createElement('tr');
-		tr.innerHTML = `
-			<td>${testCase.html}</td>
-			<td>${testCase.expected}</td>
-		`;
-		let tdHtmlWithSsml = tr.querySelector('td');
-		tbody.appendChild(tr);
-	}
 
+	let table = document.getElementById('table');
+	addTestCasesToTable(testCases, table, false);
 
 });
 
@@ -116,7 +110,7 @@ window.addEventListener("load", function(event) {
 	<script	src="../js/nvda-add-on-data-ssml.js"></script>
 	<script>
 	window.addEventListener("load", function(event) {
-		NvdaAddOnDataSsml.init('page-wide-override');
+		NvdaAddOnDataSsml.initByUrlParams(window.location.search, 'page-wide');
 	});
 	</script>
 
@@ -129,10 +123,18 @@ window.addEventListener("load", function(event) {
 <main>
 
 
-<h1>test page page-wide-override</h1>
+<h1>test page page-wide</h1>
 
 
 <div style="display: none">
+	<span data-ssml='{"sub": {"alias": "will not work"}}'></span>
+	<span data-ssml='{"sub": {"alias": "will not work"}}'> </span>
+	<span data-ssml='{"sub": {"alias": "will not work"}}'>
+	</span>
+	<a href="#" data-ssml='{"sub": {"alias": "iron"}}'>silver</a>
+	<span data-ssml='{"break":{"time":"500ms"}}'></span>
+	<span data-ssml='{"sub": {"alias": "3 prime"}}'><span>N</span></span>
+	<span data-ssml='{"sub": {"alias": "3 prime"}}'><span data-ssml='{"sub": {"alias": "3 prime"}}'>O</span></span>
 	<span data-ssml='{"sub": {"alias": "gold"}}'>silver</span>
 	<span data-ssml='{"sub": {"alias": "okay"}}'>yes</span>
 	<span data-ssml='{"sub": {"alias": "no no no if you hear this it is bad"}}'>okay</span> <!-- this is a test to make sure that "recursion" won't happen i.e. that the string okay, which appears as a result of our data-ssml, is not in turn substituted with something else by us. --> 
@@ -141,13 +143,14 @@ window.addEventListener("load", function(event) {
 	<span data-ssml='{'>red</span>
 	<span data-ssml='{"say-as": "brokenbroken"}'>green</span>
 	<span data-ssml='{"broken": "brokenbroken"}'>blue</span>
-	<span data-ssml=''>yes</span> <!-- will be ignored, we hope. -->
-	<span data-ssml>yes</span> <!-- will be ignored, we hope. -->
+	<span data-ssml=' '>yes</span> <!-- is supposed to be ignored  -->
+	<span data-ssml=''>yes</span> <!-- is supposed to be ignored -->
+	<span data-ssml>yes</span> <!-- is supposed to be ignored -->
 	<span data-ssml='{"sub": {"alias": "3 feet"}}'>3'</span>
 	<span data-ssml='{"sub": {"alias": "approximately 3 feet"}}'>~3'</span>
 	<span data-ssml='{"sub": {"alias": "3 feet approximately"}}'>3'~</span>
 	<span data-ssml='{"sub": {"alias": "mess"}}'>^[^].{9}.*!@#$%^&*()_+-=_+*$</span>
-	<span data-ssml='{"say-as": "characters"}'>abcdefg</span>
+	<span data-ssml='{"say-as": {"interpret-as": "characters"}}'>abcdefg</span>
 </div>
 
 
