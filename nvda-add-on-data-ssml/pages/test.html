@@ -19,9 +19,11 @@ p { line-height: 1.5; }
     width: 1px;
 }
 
-[data-ssml] {
+[data-ssml]:not(:focus) {
 	outline: 2px dashed rgb(150,150,150);
 }
+
+
 
 table.table {
 	border-collapse: collapse;
@@ -48,31 +50,58 @@ table.table th {
 
 	<script>
 
-window.addEventListener("load", function(event) {
+function initSkipToRowButton() {
+	let link = document.querySelector('#skip-to-row-link');
+	let input = document.querySelector('#skip-to-row-input');
+	const LOCALSTORAGE_KEY = 'nvda-data-ssml-test-page-skip-to-row-input';
+	function updateLinkHref(iTestCaseStr_) {
+		let iTestCase = parseInt(iTestCaseStr_);
+		if(isNaN(iTestCase)) return;
+		iTestCase++;
+		let trElem = document.querySelector('#table').querySelectorAll('tr')[iTestCase];
+		if(!trElem) return;
+		let newHref = `#${trElem.id}`;
+		link.setAttribute('href', newHref);
+	}
+	input.addEventListener('input', e => {
+		let iTestCaseStr = e.target.value;
+		updateLinkHref(iTestCaseStr);
+		localStorage.setItem(LOCALSTORAGE_KEY, iTestCaseStr);
+	});
+	let valFromLocalStorage = localStorage.getItem(LOCALSTORAGE_KEY);
+	if(valFromLocalStorage) {
+		input.value = valFromLocalStorage;
+		updateLinkHref(valFromLocalStorage);
+	}
+	link.focus();
+}
 
+window.addEventListener("load", function(event) {
 	let testCases = [
 		{html: `<span data-ssml='{"sub": {"alias": "3 prime"}}'>3'</span>`, 
 			expected: `3 prime`}, 
 		{html: `<a href="#" data-ssml='{"sub": {"alias": "3 prime"}}'>3'</a>`, 
 			expected: `link 3 prime`},
 
-		{html: `<span data-ssml='{"sub": {"alias": "digits"}}'>0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789</span>`, 
+		{html: `<span data-ssml='{"sub": {"alias": "digits"}}'>0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789</span>`, 
 			expected: `(assuming technique != inline && !table-arrow-nav) "digits".  i.e. the SSML works, b/c the length of plainText is under the max length.`},
-		{html: `<span data-ssml='{"sub": {"alias": "digits"}}'>0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789 0123456789</span>`, 
+		{html: `<span data-ssml='{"sub": {"alias": "digits"}}'>0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789-0123456789</span>`, 
 			expected: `(assuming technique != inline && !table-arrow-nav) "0 1 2 3 4 5 ..."  i.e. the SSML doesn't work, b/c plainText is over the max length`},
 		{html: `<span data-ssml='{"sub": {"alias": "digits"}}'>012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789</span>`, 
 			expected: `(assuming technique != inline && !table-arrow-nav) "digits".  i.e. the SSML works, b/c the length of plainText is under the max length.`},
-		{html: `<span data-ssml='{"sub": {"alias": "digits"}}'>0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789</span>`, 
+		{html: `<span data-ssml='{"sub": {"alias": "digits"}}'>01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789</span>`, 
 			expected: `(assuming technique != inline && !table-arrow-nav) "0 1 2 3 4 5 ..."  i.e. the SSML doesn't work, b/c plainText is over the max length`},
 
-		{html: `<div style="width: 2em;" data-ssml='{"sub": {"alias": "gold gold gold"}}'>silver silver silver</div>`, 
-			expected: `"gold gold gold".  i.e. the SSML works across line breaks that is created by normal wrapping in a container.  this case works but there is probably a length limit to this.`}, 
-		{html: `<div style="white-space: pre-wrap;" data-ssml='{"sub": {"alias": "gold"}}'>sil\nver</div>`, 
-			expected: `<div style="white-space: pre-wrap;">if(table arrow nav) {\n\t"gold"\nelse /* i.e. regular arrow nav */ {\n\tline 1: "sil", line 2: "ver"\n}\ni.e. the SSML sometimes doesn't work, because of the newline.</div>`}, 
+		{html: `<div style="width: 2em;" data-ssml='{"sub": {"alias": "gold gold gold"}}'>SilverSilverSilver</div>`, 
+			expected: `"gold gold gold".  i.e. the SSML works across line breaks that are created by wrapping in a container (as long as there is no whitespace or child elements).`}, 
 		{html: `<pre data-ssml='{"sub": {"alias": "gold"}}'>sil\nver</pre>`, 
-			expected: `<div style="white-space: pre-wrap;">if(table arrow nav) {\n\t"gold"\nelse /* i.e. regular arrow nav */ {\n\tline 1: "sil", line 2: "ver"\n}\ni.e. the SSML sometimes doesn't work, because of the newline.</div>`}, 
+			expected: `"sil" "ver".  i.e. SSML doesn't work, b/c we refuse to act on this, because of the newline.`}, 
 		{html: `<span data-ssml='{"sub": {"alias": "gold"}}'>sil<br>ver</span>`, 
-			expected: `"sil (next line) ver".  i.e. the SSML doesn't work.  b/c there's a child element: a &lt;br&gt;.`}, 
+			expected: `"sil" "ver".  i.e. SSML doesn't work, b/c we refuse to act on this, because of the &lt;br&gt;.`}, 
+		{html: `<div style="white-space: pre-line;" data-ssml='{"sub": {"alias": "gold"}}'>sil\nver</div>`, 
+			expected: `"sil" "ver".  i.e. SSML doesn't work, b/c we refuse to act on this, because of the newline.`}, 
+		{html: `<div style="width:4em;" data-ssml='{"sub": {"alias": "gold"}}'>sil<wbr>ver</div>`, 
+			expected: `"silver".  this shows that SSML doesn't work on this because of the &lt;wbr&gt; element.  maybe it could one day, but at the time of writing, we skip any element with a child element, and &lt;wbr&gt; is a child element.`}, 
 
 		{html: `<span data-ssml='{"phoneme":{"x-alphabet":"ipa", "ph":"ˈdrɪəri"}}'>broken</span>`, 
 			expected: `broken`},
@@ -86,7 +115,11 @@ window.addEventListener("load", function(event) {
 			expected: `dreary`},
 
 		{html: `<span data-ssml='{"sub": {"alias": " "}}'>“. . .</span> feathers <span data-ssml='{"sub": {"alias": " "}}'>. . .”</span>`, 
-			expected: `"(silence) feathers (silence)".  sub w/ " ".  I got this from https://ky.mypearsonsupport.com/practice-tests/ > Reading Accommodated Practice Tests > Grade 3 > 4 of 12.  (also many other grades.)  it's unclear to me what this data-ssml is trying to accomplish.  my best guess is: a silence, b/c w/o the data-ssml, NVDA speaks "dot dot dot".  but I think that goal would be better met via aria-hidden than data-ssml.`},
+			expected: `"dot dot feathers dot dot".  i.e. SSML doesn't work, b/c we refuse, b/c of the whitespace.  I got this from https://ky.mypearsonsupport.com/practice-tests/ > Reading Accommodated Practice Tests > Grade 3 > 4 of 12.  (also many other grades.)  this was sub w/ " " - AFAICS this data-ssml is trying to accomplish replacing the "dot dot" w/ silence.  we don't support this b/c of the whitespace in the ". . .".  I think that goal (of silence) would be better met via aria-hidden than data-ssml.`},
+		{html: `alpha <span data-ssml='{"sub": {"alias": " "}}'>feathers</span> beta`, 
+			expected: `"alpha beta".  similar to previous, this is a sub w/ " ", to accomplish silence.  this one works b/c there's no whitespace in the element w/ data-ssml.`},
+		{html: `<span data-ssml='{"sub": {"alias": "beta gamma"}}'>alpha</span>`, 
+			expected: `"beta gamma".  shows that whitespace in the SSML is not a problem.  only whitespace in the plain text is a problem.`},
 
 		/* no text content */
 		{html: `<span data-ssml='{"sub": {"alias": "surprise"}}'></span>`, 
@@ -162,18 +195,23 @@ window.addEventListener("load", function(event) {
 			expected: 'if synth==OneCore: led (as in "heavy metal").<br>else: who knows.'},
 		{html: `<span data-ssml='{"phoneme":{"alphabet":"ipa","ph":"liːd"}}'>lead</span>`, 
 			expected: 'if synth==OneCore: leed (as in "follow the leader").<br>else: who knows.'},
-		{html: `<span data-ssml='{"phoneme":{"alphabet":"ipa","ph":"lɛd liːd lɛd liːd lɛd liːd lɛd liːd lɛd liːd lɛd liːd lɛd liːd lɛd liːd lɛd liːd lɛd liːd"}}'>lead lead lead lead lead lead lead lead lead lead lead lead lead lead lead lead lead lead lead lead</span>`, 
-			expected: `if(synth==OneCore) {<br>
-			&nbsp;&nbsp;if(technique==index) {<br>
-			&nbsp;&nbsp;&nbsp;&nbsp;"led leed led leed ..."<br>
-			&nbsp;&nbsp;} else if(technique==inline) {<br>
-			&nbsp;&nbsp;&nbsp;&nbsp;if(you got here by table arrow nav) {<br>
-			&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"led leed led leed ..."<br>
-			&nbsp;&nbsp;&nbsp;&nbsp;} else if(you got here by regular arrow nav) {<br>
-			&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"leed leed leed leed ..." (b/c plainText+ssml exceeded the max length)}<br>
-			} else /* synth=other */ {<br>
-			&nbsp;&nbsp;who knows
-			<br>}`},
+		{html: `<span data-ssml='{"phoneme":{"alphabet":"ipa","ph":"`+('lɛd liːd '.repeat(9).trim())+`"}}'>`+('LeadLead'.repeat(9))+`</span>`, // the trim() is there b/c it doesn't work if it isn't there.  I guess the PhonemeCommand doesn't like trailing whitespace. 
+			expected: `<pre>if(synth==OneCore) {
+  if(technique==index) {
+    "led leed led leed ..."
+  } else if(technique==inline) {
+    if(table arrow nav) {
+      "led leed led leed ..."
+    } else { // ==> regular arrow nav
+      "leed leed leed leed ..." [1] 
+    }
+  }
+} else { // ==> synth==other 
+  "leed leed leed leed" I assume, 
+  b/c this is a phoneme 
+}
+[1] b/c plainText+ssml exceeded max len
+	</pre>`},
 		{html: `<span data-ssml='{"phoneme":{"alphabet":"ipa","ph":"θ"}}'>th</span>`, 
 			expected: `"TH" (a toothy "T H" sound, like the start of the word "thought".  unlike most phonemes, this phoneme works with all synths (i.e. synth=eSpeak|SAPI5|OneCore).  I don't know why.  <a href="https://github.com/nvaccess/nvda/blob/b501e16a2392aaa89892879d77725f02b9f2835d/source/synthDrivers/sapi5.py#L423">source</a>.)`},
 		{html: `
@@ -205,23 +243,68 @@ window.addEventListener("load", function(event) {
 			expected: `"red".   encoding characters in the wild.  looks like an encoded index of "-1", which is negative (= invalid), so it will cause a harmless exception in our python logs.`},
 		{html: `&#x2062;&#x2060;&#xfffa;&#x2060;&#xfffa;&#x2060;&#xfffa;&#x2060;&#xfffa;&#x2060;&#xfffa;&#x2062;green&#x2062;&#x2062;`, 
 			expected: `"green".  encoding characters in the wild. looks like an encoded index of "99999", which is out of range, so it will cause a harmless exception in our python logs.`},
-		{html: `&#x2062;&#x2062;&#x2062;&#x2062; &#x2062;&#x2062;3&#x2062;&#x2062; &#x2062;&#xfffa;y&#x206F; &#x2062;4&#x2062;&#x2062; &#x2062;&#x2064;&#x2061;&#x2062;5&#x2062;&#x2062; &#x2062;&#x2064;&#x2061;&#x2064;&#xfeff;&#x2064;&#x2063;&#x2062;6&#x2062;&#x2062; &#x2062;&#x2064;&#x2062;&#x2062;&#x2062;7`, 
-			expected: `"3 why 4 5 6 7".  see comment for details.  <!-- encoding characters in the wild.  contains several messes, in this order:
-			1) "encoded string" (= what might seem to be a string that was encoded by our JS, but really is encoding chars in the wild) is empty and plain text is empty.  
-			2) "encoded string" is empty and plain text is not empty.
-			3) "encoded string" contains an invalid encoding character: "z".
-			4) botched macro end marker. 
-			5) "encoded string" is an encoded letter "t" which will never work b/c it's neither ssml json (for technique=inline) nor an integer (for technique=index). 
-			6) similar to previous, but this time the encoded string is "tuv". 
-			7) "encoded string" is just one encoding character.  I don't know what that one character could possibly mean.  probably nothing useful.  
+		{html: `&#x2062;&#x2062;&#x2062;&#x2062; &#x2062;&#x2062;g&#x2062;&#x2062; &#x2062;g&#x2062; h&#x2062;&#x2062; &#x2062;&#x2064;&#x2061;&#x2062;j&#x2062;&#x2062; &#x2062;&#x2064;&#x2061;&#x2064;&#xfeff;&#x2064;&#x2063;&#x2062;k&#x2062;&#x2062; &#x2062;&#x2064;&#x2062;l&#x2062;&#x2062; &#x2062;&#xfffa;h&#x206F; &#x2062;i&#x2062;&#x2062;`, 
+			expected: `"g g h j k l i".  see comment for details.  
+			<!-- encoding characters in the wild.  contains several messes, in this order:
+			- plainTextToAffect="": the "encoded string" (= what might seem to be a string that was encoded by our JS, but really is encoding chars in the wild) is empty and plain text is empty.  
+			- plainTextToAffect="g": the "encoded string" is empty and the plain text is not empty.
+			- plainTextToAffect="h": the "encoded string" contains an invalid encoding character: it's a "g".
+			- plainTextToAffect="j": the "encoded string" is an encoded letter "t" which will never work b/c it's neither ssml json (for technique=inline) nor an integer (for technique=index). 
+			- plainTextToAffect="k": similar to previous, but this time the encoded string is "tuv". 
+			- plainTextToAffect="l": the "encoded string" is just one encoding character.  I don't know what that one character could possibly mean.  probably nothing useful.  
+			- no idea  
+			- plainTextToAffect="i": botched macro end marker. 
 
 			some of the above messes will cause an ugly-but-harmless exception in our logs.  (JS logs,  python logs, or both.)  others will be silently or semi-silently ignored. -->`},
-
-	
+		{html: `&#x2062;&#x2064;&#x2061;&#x2062;alpha&#x2062;&#x2062; <span data-ssml='{"sub": {"alias": "beta"}}'>no</span>`, 
+			expected: `"alpha beta".  this case consists of two pieces: 1) some simulated "encoding characters in the wild" which will result in an exception to be thrown (in the python), followed by 2) some valid SSML which won't throw an exception.  and those two pieces will get processed in the same call to our speech filter.  so this case tests the behaviour: if an exception is raised for a certain match (in this case, the first one) then we'll fall back to the plain text only for that match.  not for all matches in the string that got passed to our speech filter.`},
+		{html: `&#x2062;&#x2060;&#xfffa;&#x2060;&#xfffa;&#x2060;&#xfffa;&#x2060;&#xfffa;&#x2060;&#xfffa;&#x2062;alpha&#x2062;&#x2062; <span data-ssml='{"sub": {"alias": "beta"}}'>no</span>`, 
+			expected: `"alpha beta".  similar to previous, but this time we're causing an exception that we know will be a /retriable/ exception.  (b/c it's an index of 99999.)`},
 	];
+
+	let hyphenHtmlTemplate = '';
+	for(let i=0; i<20; i++) {
+		hyphenHtmlTemplate += `<span data-ssml='{"sub": {"alias": "${i}"}}'>aHYPHENbHYPHENcHYPHENdHYPHENeHYPHENf</span> `;
+	}
+	testCases.push(...[
+		{html: hyphenHtmlTemplate.replace(/HYPHEN/g, '-'), 
+			expected: `"0 1 2 3 4 5 ...".  (assuming technique!=inline.  otherwise: probably doesn't work.)  this test case and the next few show that nvda doesn't break up a hyphenated word (with any kind of hyphen), so our add-on can do SSML on a hyphenated word.`}, 
+		{html: hyphenHtmlTemplate.replace(/HYPHEN/g, '&#x2010;'), 
+			expected: `see above.`}, 
+		{html: hyphenHtmlTemplate.replace(/HYPHEN/g, '&#x2011;'), 
+			expected: `see above.`}, 
+		{html: hyphenHtmlTemplate.replace(/HYPHEN/g, '&#x2013;'), 
+			expected: `see above.`}, 
+		{html: hyphenHtmlTemplate.replace(/HYPHEN/g, '&#x2014;'), 
+			expected: `see above.`}, 
+	]);
+	testCases.push(...[
+		{html: `<span data-ssml='{"sub": {"alias": "gamma"}}'>alpha beta</span>`, 
+			expected: `"alpha beta".  i.e. SSML doesn't work.  b/c there's a space in the plain text.  an error will be logged.`}, 
+		{html: `<span data-ssml='{"sub": {"alias": "warning long word"}}'>Donaudampfschiffahrtselektrizitätenhauptbetriebswerkbauunterbeamtengesellschaft</span>`, 
+			expected: `"warning long word".  (assuming technique!=inline.)  i.e. SSML works and a JS warning will be logged.`}, 
+		{html: `<span data-ssml='{"say-as": {"interpret-as": "characters"}}'>(416) 555-3792</span> `, 
+			expected: `(for synth=eSpeak.)  "four hundred and sixteen..." i.e. SSML doesn't work, b/c we refuse to act on this, because of the whitespace.  so: this phone number, and any phone number with a space in it, won't work.`}, 
+		{html: `<span data-ssml='{"say-as": {"interpret-as": "characters"}}'>416-555-3792</span> `, 
+			expected: `"four one six ... " i.e. SSML works, b/c this phone number has no whitespace.`}, 
+		{html: `<img alt="duck" src="duck.jpg" data-ssml='{"sub": {"alias": "a duck in the water, facing left"}}'>`, 
+			expected: `"graphic duck".  i.e. the SSML doesn't work.  this is an img alt attribute.`}, 
+		{html: `<img aria-labelledby="label-duck" src="duck.jpg">`, 
+			expected: `"a duck in the water, facing left".  this shows the right way to put SSML on image alt text: with aria-labelledby.  <br>ignore this part: this is the aria-labelledby target: <span data-ssml='{"sub": {"alias": "a duck in the water, facing left"}}' id="label-duck"></span>  (this also shows that the labelledby target doesn't need to have text content.)`}, 
+
+		{html: `<span data-ssml='{"sub":{"alias":"1"}}'>Lorem</span> Ipsum <span>is</span> simply dummy text of the <span data-ssml='{"sub":{"alias":"2"}}'>printing</span> and typesetting industry.<br>
+		<span data-ssml='{"sub":{"alias":"3"}}'>Lorem</span> Ipsum <span aria-dropeffect="no">has</span> <span aria-dropeffect="no">been</span> <span data-ssml='{"sub":{"alias":"4"}}'>the</span> industry's <span data-ssml='{"sub":{"alias":"5"}}'>standard</span> dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book.<br>
+		It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.`, 
+			expected: `testing data-ssml in a paragraph, and pointless spans.`}, // testing on firefox 2025-11-30: a plain span won't show up as its own string in our nvda filter.  a span w/ aria-dropeffect will. 
+	]);
 
 	let table = document.getElementById('table');
 	addTestCasesToTable(testCases, table, true);
+
+
+	initSkipToRowButton();
+
+
 
 });
 
@@ -230,7 +313,9 @@ window.addEventListener("load", function(event) {
 	<script	src="../js/nvda-add-on-data-ssml.js"></script>
 	<script>
 	window.addEventListener("load", function(event) {
-		NvdaAddOnDataSsml.initByUrlParams(window.location.search, 'index');
+		let defaultTechnique = 'index';
+		let defaultWatchForDomChanges = true;
+		NvdaAddOnDataSsml.initByUrlParams(window.location.search, defaultTechnique, defaultWatchForDomChanges);
 	});
 	</script>
 
@@ -244,6 +329,11 @@ window.addEventListener("load", function(event) {
 
 
 <h1>test page</h1>
+
+<p>
+	skip to row <input size="2" id="skip-to-row-input"> <a href id="skip-to-row-link">go</a><br>
+	<a href="#bottom">skip to bottom</a>
+</p>
 
 <table class="table" id="table">
 	<thead>
@@ -259,7 +349,7 @@ window.addEventListener("load", function(event) {
 	</tbody>
 </table>
 
-<div style="height: 50vh"></div>
+<div style="height: 50vh" id="bottom" tabindex="-1"></div>
 
 
 
@@ -269,3 +359,4 @@ window.addEventListener("load", function(event) {
 </body>
 
 </html>
+
