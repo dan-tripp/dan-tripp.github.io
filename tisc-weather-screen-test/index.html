@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>TISC Weather Screen</title>
+	<style>
+
+		:root {
+			color-scheme: light;
+			font-family: Arial, Helvetica, sans-serif;
+			--wordy-border-width: 24px;
+			--wordy-border-content-gap: 2px;
+			--right-column-width: 700px;
+			--windguru-render-width: 900px;
+			--weather-gov-wind-history-scroll-offset: 300px;
+			background: #f4f7f9;
+			color: #1d252c;
+		}
+
+		body {
+			margin: 0;
+			min-height: 100vh;
+			overflow: hidden;
+		}
+
+		main {
+			display: grid;
+			grid-template-columns: auto minmax(0, 1fr) var(--right-column-width);
+			gap: 16px;
+			height: 100vh;
+			padding: 16px 16px 40px;
+			box-sizing: border-box;
+		}
+
+		.navcanada-current-wind-section,
+		.middle-column,
+		.rightmost-column {
+			display: grid;
+			align-content: start;
+			gap: 16px;
+			height: calc(100vh - 56px);
+			overflow: auto;
+		}
+
+		.weather-gov-wind-history-iframe {
+			width: 100%;
+			height: calc(300px + var(--weather-gov-wind-history-scroll-offset));
+			border: 0;
+			background: #fff;
+			transform: translateY(calc(-1 * var(--weather-gov-wind-history-scroll-offset)));
+		}
+
+		.wordy-border-frame {
+			--wordy-border-content-height: 300px;
+			position: relative;
+			width: 100%;
+			padding: calc(var(--wordy-border-width) + var(--wordy-border-content-gap));
+			box-sizing: border-box;
+			color: #fff;
+			overflow: hidden;
+		}
+
+		.wordy-border-svg {
+			position: absolute;
+			inset: 0;
+			z-index: 2;
+			display: block;
+			width: 100%;
+			height: 100%;
+			pointer-events: none;
+		}
+
+		.wordy-border-svg-fill {
+			fill: #4d4d4d;
+			fill-rule: evenodd;
+		}
+
+		.wordy-border-svg text {
+			fill: #fff;
+			font-weight: 700;
+			letter-spacing: 0;
+		}
+
+		.wordy-border-content {
+			position: relative;
+			z-index: 1;
+			height: var(--wordy-border-content-height);
+			overflow: hidden;
+			background: #fff;
+		}
+
+		.navcanada-current-wind-wordy-border-frame {
+			--wordy-border-content-height: auto;
+			width: max-content;
+		}
+
+		.navcanada-current-wind-iframe-viewport {
+			width: 505px;
+			height: 500px;
+			overflow: hidden;
+			background: #202020;
+		}
+
+		.navcanada-current-wind-iframe {
+			width: 1920px;
+			height: 900px;
+			border: 0;
+			transform-origin: top left;
+			transform: translate(-510px, -330px);
+		}
+
+		.windguru-wordy-border-frame {
+			--wordy-border-content-height: auto;
+		}
+
+		.windguru-wordy-border-frame iframe { /* this is a workaround for another wind guru bug: that its row headers disappear ("Wind speed (knots)" etc.), when I zoom in even slightly, even though there's a lot of empty space to the right. */
+			width: var(--windguru-render-width) !important;
+			max-width: none;
+		}
+
+		.windfinder-wordy-border-frame {
+			--wordy-border-content-height: auto;
+		}
+
+		.windfinder-wordy-border-frame .wordy-border-content {
+			width: 550px; /* comment f8a6e21c: 
+			this is a workaround for a windfinder bug: it collapses horizontally on ~ 25% of page loads.  
+			by "collapses" I mean: the leftmost column (= the row headers) don't show up.  instead, a button shows up: "click to toggle legend".
+			testing this workaround is awkward b/c I couldn't reproduce the bug on localhost.  so at the time of writing, I don't know if this workaround works. 
+			- reprod on prod (= github pages) at viewport 1920 px wide: 25% of the time. 
+			- reprod on localhost at viewport 1920 px wide: 0/50 times.  
+			- reprod on localhost at viewport 1536 px: 100% of the time.  but at this viewport width, it's a feature, not a bug. */
+			min-height: 300px;
+		}
+
+		.radar-wordy-border-frame {
+			--wordy-border-content-height: auto;
+		}
+
+		.footer-line-page-load-time {
+			position: fixed;
+			bottom: 10px;
+			font-size: 18px;
+		}
+
+		.footer-line-viewport-size {
+			position: fixed;
+			right: 10px;
+			bottom: 10px;
+			font-size: 18px;
+			color: #ccc;
+		}
+	</style>
+	<script>
+
+function scheduleWholePageReload() {
+	window.setTimeout(function () {
+		window.location.reload();
+	}, 5 * 60 * 1000);
+}
+scheduleWholePageReload();
+
+function setFooterLineText() {
+	{
+		let el = document.getElementById("footer-line-page-load-time");
+		let now = new Date();
+		let s = "This page was last refreshed on " + now.toLocaleString([], {
+			weekday: "long",
+			month: "long",
+			day: "numeric",
+			hour: "numeric",
+			minute: "2-digit",
+		}) + ".  The refresh times of the source data are unknown.";
+		el.textContent = s;
+	}
+	{
+		let el = document.getElementById("footer-line-viewport-size");
+		let s = `${window.innerWidth} x ${window.innerHeight}`;
+		el.textContent = s;
+	}
+}
+
+/* we add windfinder this way - i.e. via JS at this time, rather than earlier via the standard windfinder-provided <script> element from https://www.windfinder.com/widget/configurator/toronto_island/forecast/embed - b/c is a second attempt at fixing the windfinder bug documented at comment f8a6e21c.  b/c the first attempt didn't work. */
+function addWindfinderForecast() {
+	let placeholder = document.getElementById("windfinder-widget-placeholder");
+	let script = document.createElement("script");
+	script.src = "https://www.windfinder.com/widget/forecast/js/toronto_island?unit_wave=m&unit_rain=mm&unit_temperature=c&unit_wind=kts&unit_pressure=hPa&days=1&show_day=0&show_pressure=0&show_waves=0&show_temperature=0&show_clouds=0";
+	placeholder.append(script);
+}
+
+function addWordyBorder(element_, string_) {
+	let borderThickness = parseFloat(getComputedStyle(element_).getPropertyValue("--wordy-border-width"));
+	let borderOuterRadius = 34;
+	let gapBetweenBorderInnerEdgeAndTextBaseline = 7;
+	let gapBetweenBorderOuterEdgeAndTextAscent = 4;
+	let endFadeStart = 40;
+	let endFadeFinish = 10;
+
+	endFadeStart += borderThickness;
+	endFadeFinish += borderThickness;
+	let svgNs = "http://www.w3.org/2000/svg";
+	let content = element_.firstElementChild;
+	let uniqueId = "wordy-border-" + element_.id;
+
+	function makeSvgElement(tagName) {
+		return document.createElementNS(svgNs, tagName);
+	}
+
+	function roundedRectPath(x, y, width_, height_, radius_) {
+		let r = Math.min(radius_, width_ / 2, height_ / 2);
+		let right_ = x + width_;
+		let bottom_ = y + height_;
+
+		return [
+			`M ${x + r} ${y}`,
+			`H ${right_ - r}`,
+			`A ${r} ${r} 0 0 1 ${right_} ${y + r}`,
+			`V ${bottom_ - r}`,
+			`A ${r} ${r} 0 0 1 ${right_ - r} ${bottom_}`,
+			`H ${x + r}`,
+			`A ${r} ${r} 0 0 1 ${x} ${bottom_ - r}`,
+			`V ${y + r}`,
+			`A ${r} ${r} 0 0 1 ${x + r} ${y}`,
+			"Z",
+		].join(" ");
+	}
+
+	function roundedRectTextPath(x, y, width_, height_, radius_, endY) {
+		let r = Math.min(radius_, width_ / 2, height_ / 2);
+		let right_ = x + width_;
+		let bottom_ = y + height_;
+
+		return [
+			`M ${x + r} ${y}`,
+			`H ${right_ - r}`,
+			`A ${r} ${r} 0 0 1 ${right_} ${y + r}`,
+			`V ${bottom_ - r}`,
+			`A ${r} ${r} 0 0 1 ${right_ - r} ${bottom_}`,
+			`H ${x + r}`,
+			`A ${r} ${r} 0 0 1 ${x} ${bottom_ - r}`,
+			`V ${endY}`,
+		].join(" ");
+	}
+
+	let svg = makeSvgElement("svg");
+	let defs = makeSvgElement("defs");
+	let path = makeSvgElement("path");
+	let fadeGradient = makeSvgElement("linearGradient");
+	let fadeStart = makeSvgElement("stop");
+	let fadeEnd = makeSvgElement("stop");
+	let fadeMask = makeSvgElement("mask");
+	let fadeMaskSolid = makeSvgElement("rect");
+	let fadeMaskGradient = makeSvgElement("rect");
+	let borderFill = makeSvgElement("path");
+	let endFadeCover = makeSvgElement("rect");
+	let text = makeSvgElement("text");
+	let textPath = makeSvgElement("textPath");
+
+	svg.classList.add("wordy-border-svg");
+	borderFill.classList.add("wordy-border-svg-fill");
+	path.id = uniqueId + "-path";
+	fadeGradient.id = uniqueId + "-fade-gradient";
+	fadeMask.id = uniqueId + "-fade-mask";
+	fadeMask.setAttribute("maskUnits", "userSpaceOnUse");
+	fadeGradient.setAttribute("x1", 0);
+	fadeGradient.setAttribute("y1", 0);
+	fadeGradient.setAttribute("x2", 0);
+	fadeGradient.setAttribute("y2", 1);
+	fadeStart.setAttribute("offset", 0);
+	fadeStart.setAttribute("stop-color", "#000");
+	fadeEnd.setAttribute("offset", 1);
+	fadeEnd.setAttribute("stop-color", "#fff");
+	fadeMaskSolid.setAttribute("x", 0);
+	fadeMaskSolid.setAttribute("y", 0);
+	fadeMaskSolid.setAttribute("fill", "#fff");
+	fadeMaskGradient.setAttribute("fill", "url(#" + fadeGradient.id + ")");
+	text.setAttribute("mask", "url(#" + fadeMask.id + ")");
+	endFadeCover.setAttribute("fill", "#4d4d4d");
+	textPath.setAttribute("href", "#" + path.id);
+	textPath.textContent = (string_ + " ").repeat(99);
+
+	fadeGradient.append(fadeStart, fadeEnd);
+	fadeMask.append(fadeMaskSolid, fadeMaskGradient);
+	defs.append(path, fadeGradient, fadeMask);
+	text.append(textPath);
+	svg.append(defs, borderFill, text, endFadeCover);
+	element_.append(svg);
+
+	function updateWordyBorder() {
+		let width = element_.offsetWidth;
+		let height = element_.offsetHeight;
+		let pathInset = borderThickness - gapBetweenBorderInnerEdgeAndTextBaseline;
+		let pathRadius = Math.max(0, borderOuterRadius - pathInset);
+		let fontSize = Math.max(1, pathInset - gapBetweenBorderOuterEdgeAndTextAscent);
+		let endFadeLength = endFadeStart - endFadeFinish;
+		let contentRadius = Math.max(0, borderOuterRadius - borderThickness);
+
+		svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+		path.setAttribute("d", roundedRectTextPath(
+			pathInset,
+			pathInset,
+			width - pathInset * 2,
+			height - pathInset * 2,
+			pathRadius,
+			endFadeFinish
+		));
+		fadeMaskSolid.setAttribute("width", width);
+		fadeMaskSolid.setAttribute("height", height);
+		fadeMaskGradient.setAttribute("x", 0);
+		fadeMaskGradient.setAttribute("y", endFadeFinish);
+		fadeMaskGradient.setAttribute("width", borderThickness);
+		fadeMaskGradient.setAttribute("height", endFadeLength);
+		endFadeCover.setAttribute("x", 0);
+		endFadeCover.setAttribute("y", 0);
+		endFadeCover.setAttribute("width", borderThickness);
+		endFadeCover.setAttribute("height", endFadeFinish);
+		borderFill.setAttribute("d", [
+			roundedRectPath(0, 0, width, height, borderOuterRadius),
+			roundedRectPath(
+				borderThickness,
+				borderThickness,
+				width - borderThickness * 2,
+				height - borderThickness * 2,
+				contentRadius
+			),
+		].join(" "));
+		text.style.fontSize = `${fontSize}px`;
+		element_.style.borderRadius = `${borderOuterRadius}px`;
+		content.style.borderRadius = `${contentRadius}px`;
+	}
+
+	updateWordyBorder();
+	let resizeObserver = new ResizeObserver(updateWordyBorder);
+	resizeObserver.observe(element_);
+}
+
+window.addEventListener("DOMContentLoaded", function () {
+	addWordyBorder(document.getElementById("navcanada-current-wind"), "CURRENT WIND, ISLAND AIRPORT\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0");
+	addWordyBorder(document.getElementById("windguru-forecast"), "WIND GURU FORECAST\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0");
+	addWordyBorder(document.getElementById("windfinder-forecast"), "WIND FINDER FORECAST\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0");
+	addWordyBorder(document.getElementById("recent-wind-history"), "TODAY'S WIND HISTORY\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0");
+	addWordyBorder(document.getElementById("current-rain-radar"), "CURRENT RADAR\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0");
+	addWindfinderForecast();
+	setFooterLineText();
+});
+
+/* this works around a bug in wind guru where visually the wind guru content doesn't show up at all.  it takes up no space in the layout.  but inside the iframe, the dom content is all there.  afaics it happens solely b/c sometimes the wind guru iframe gets a style attribute which contains "height: 0px".  and of course it was the wind guru JS that did that.  I don't know why it did it.  the wind guru JS must have a bug.  I couldn't reproduce this bug on demand by reloading the page w/ ctrl+r.  but it was easy to reproduce if I left the page open in a tab for a few hours.  I saw the bug that way about five times, in the first two days of this project.  IIRC I saw it both on localhost and github pages.  */
+function workAroundWindGuruBug() {
+	window.addEventListener("load", function () {
+		var windguruRetryDelay = 5*1000;
+
+		function isWindGuruIframe(frame) {
+			return frame.tagName === "IFRAME" &&
+				frame.src.indexOf("windguru.cz/") !== -1;
+		}
+
+		function scheduleWindGuruIframeReloadIfNecessary(frame) {
+			if(frame.dataset.windguruReloadScheduled === "true") return; // this is necessary (or at least: /warranted/) b/c we'll get to this line repeatedly for the windguru iframe.  in turn b/c our mutation observer casts a wide net in terms of the events it triggers on.  I don't know which events happen and when, and I don't need to know. 
+
+			frame.dataset.windguruReloadScheduled = "true";
+
+			window.setTimeout(function () {
+				frame.dataset.windguruReloadScheduled = "false";
+				if(frame.offsetHeight > 0) return; // 0 is the symptom of the problem.  it's not exactly the /cause/ of it.  the cause is <iframe style="... height: 0px; ..." 
+				frame.src = frame.src; // this is what does the "reload".
+			}, windguruRetryDelay);
+		}
+
+		function scheduleWindGuruIframeReloadsIfNecessary() {
+			document.querySelectorAll("iframe").forEach(function (iframe) {
+				if(isWindGuruIframe(iframe)) {
+					scheduleWindGuruIframeReloadIfNecessary(iframe);
+				}
+			});
+		}
+
+		var observer = new MutationObserver(scheduleWindGuruIframeReloadsIfNecessary);
+
+		observer.observe(document.body, {
+			childList: true,
+			subtree: true,
+			attributes: true,
+			attributeFilter: ["style", "src"],
+		});
+
+		scheduleWindGuruIframeReloadsIfNecessary();
+	});
+}
+workAroundWindGuruBug();
+
+
+	</script>
+</head>
+<body>
+	<main>
+		<section class="navcanada-current-wind-section">
+			<div class="wordy-border-frame navcanada-current-wind-wordy-border-frame" id="navcanada-current-wind">
+				<div class="wordy-border-content">
+					<div class="navcanada-current-wind-iframe-viewport">
+						<iframe class="navcanada-current-wind-iframe" src="https://spaces.navcanada.ca/workspace/aeroview/CYTZ" scrolling="no"></iframe>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<section class="middle-column">
+			<div class="wordy-border-frame windfinder-wordy-border-frame" id="windfinder-forecast">
+				<div class="wordy-border-content">
+					<div id="windfinder-widget-placeholder"></div>
+				</div>
+			</div>
+
+			<div class="wordy-border-frame windguru-wordy-border-frame" id="windguru-forecast">
+				<div class="wordy-border-content">
+					<script id="wg_fwdg_517964_54_1780061184894">
+					(function (window, document) {
+					var loader = function () {
+						var arg = ["s=517964" ,"m=54","uid=wg_fwdg_517964_54_1780061184894" ,"wj=knots" ,"tj=c" ,"waj=m" ,"tij=cm" ,"odh=0" ,"doh=24" ,"fhours=24" ,"hrsm=3" ,"vt=forecasts" ,"lng=en" ,"p=WINDSPD,GUST,SMER,TMP,APCP1s"];
+						var script = document.createElement("script");
+						var tag = document.getElementsByTagName("script")[0];
+						script.src = "https://www.windguru.cz/js/widget.php?"+(arg.join("&"));
+						tag.parentNode.insertBefore(script, tag);
+					};
+					window.addEventListener ? window.addEventListener("load", loader, false) : window.attachEvent("onload", loader);
+					})(window, document);
+					</script>
+				</div>
+			</div>
+
+		</section>
+
+		<section class="rightmost-column">
+			<div class="wordy-border-frame radar-wordy-border-frame" id="current-rain-radar">
+				<!-- 
+				- source: https://embed.windy.com/config/map
+				- we use windy.com.  windy.app is different and seems dubious.  possibly a scam.  also their widget is worse.
+				- we used to use "&overlay=rain&product=ecmwf" (== "rain, thunder") but I stopped because it also shows a /surface/ wind direction layer.  surface wind is misleading in that context b/c it's not the direction that the rain/thunder clouds are moving.  I observed this many times easily by looking around north america for a minute.  IMO if we show any wind direction on the same map as rain/thunder then people will think that the wind direction is the direction that the rain/thunder is moving in, so they might decide to go sailing when they shouldn't.  so I switched to "&product=radar" b/c it shows no wind.  it does show rain clouds somehow (I'm ignorant of the metric it uses), and thunder icons, and the occasional thunder flash animation.  I hope it's useful. -->
+				<div class="wordy-border-content">
+					<iframe width="650" height="300" src="https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=mm&metricTemp=°C&metricWind=kt&zoom=7&overlay=radar&product=radar&level=surface&lat=43.443&lon=-79.04&message=true" frameborder="0"></iframe>
+					<!-- this iframe makes annoying sounds sometimes.  it's when there's lightning visible on the map.   the visual lightning flashes are neat.  but they also make a sound.  it sounds like clicking/crackling.  there's no way to prevent it AFAICS.  someone requested it as a feature here: https://community.windy.com/topic/40011/embed-full-parameter-list-and-lightning-sound-question/2 .  there's no way to block it via an iframe attribute or anything like that.  -->
+				</div>
+			</div>
+
+			<div class="wordy-border-frame" id="recent-wind-history">
+				<div class="wordy-border-content">
+					<iframe
+						class="weather-gov-wind-history-iframe"
+						scrolling="no"
+						src="https://www.weather.gov/wrh/timeseries?site=CYTZ&hours=12&units=english_k&chart=off&headers=on&obs=tabular&hourly=true&pview=standard&font=12&plot=wind_speedgust">
+					</iframe>
+				</div>
+			</div>
+
+		</section>
+	</main>
+
+	<div class="footer-line-page-load-time" id="footer-line-page-load-time">...</div>
+	<div class="footer-line-viewport-size" id="footer-line-viewport-size">...</div>
+
+</body>
+</html>
