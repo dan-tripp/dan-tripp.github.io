@@ -124,14 +124,14 @@
 		}
 
 		.windfinder-wordy-border-frame .wordy-border-content {
-			width: 550px; /* comment f8a6e21c: 
+			min-width: 550px; /* comment f8a6e21c: 
 			this is a workaround for a windfinder bug: it collapses horizontally on ~ 25% of page loads.  
 			by "collapses" I mean: the leftmost column (= the row headers) don't show up.  instead, a button shows up: "click to toggle legend".
 			testing this workaround is awkward b/c I couldn't reproduce the bug on localhost.  so at the time of writing, I don't know if this workaround works. 
 			- reprod on prod (= github pages) at viewport 1920 px wide: 25% of the time. 
 			- reprod on localhost at viewport 1920 px wide: 0/50 times.  
 			- reprod on localhost at viewport 1536 px: 100% of the time.  but at this viewport width, it's a feature, not a bug. */
-			min-height: 300px;
+			min-height: 300px; /* this is an experimental fix, added 2026-07-06, for a bug I observed a lot (on github pages, and never on localhost) where windfinder collapsed both horizontall and vertically.  "horizontall" means the "click to toggle legend" button appears, as mentioned elsewhere in this file.  "vertically" is a unique problem where the whole thing is too short and cut off: only two rows (time of day, and wind direction) are visible. */
 		}
 
 		.radar-wordy-border-frame {
